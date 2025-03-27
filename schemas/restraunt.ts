@@ -1,9 +1,9 @@
-import { z, type TypeOf } from "zod";
+import { z } from "zod";
 
 export const RestaruntSchema=z.object({
     name:z.string().min(1),
     location:z.string().min(1),
-    cuisins:z.array(z.string().min(1))
+    cuisines:z.array(z.string().min(1))
 
 })
 export const RestaruntDetailSchema=z.object({
