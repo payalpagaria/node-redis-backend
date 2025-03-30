@@ -5,7 +5,7 @@ import { errorHandler } from "./middlewares/erroHandler"
 const port=process.env.PORT||3000
 const app=express()
 app.use(express.json())
-app.use('/restraunts',restrauntsRouter)
+app.use('/restarunts',restrauntsRouter)
 app.use('/cuisines',cuisineRouter)
 app.use(errorHandler)
 app.listen(port,()=>{
