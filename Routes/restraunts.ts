@@ -3,28 +3,37 @@ import { validateHandler } from "../middlewares/validate"
 import { RestaruntSchema, type Restaurant } from "../schemas/restraunt"
 import { InitializeClient } from "../utils/client"
 import { nanoid } from "nanoid"
-import { restrauntKeyById, reviewDetailsKeyById,  reviewKeyById } from "../utils/keys"
+import { cuisineKey, cuisineKeyById, cuisinesKey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById } from "../utils/keys"
 import { errorResponse, sucessResponse } from "../utils/responses"
 import { checkRestaurants } from "../middlewares/checkRestaurnats"
 import { reviewSchema, type Review } from "../schemas/review"
-import { date, nan } from "zod"
-import { timeStamp } from "console"
-const router=express.Router()
-router.post('/',validateHandler(RestaruntSchema),async(req ,res)=>{
-    const data=req.body as Restaurant
-    try {
-        const client=await InitializeClient();
-        const id=nanoid()
-        const restaurantKey=restrauntKeyById(id)
-        const hashdata={id,name:data.name,location:data.location}
-       const addResult= await client.hSet(restaurantKey,hashdata);
-        sucessResponse(res,hashdata,"Added new restaurant")
-    
-    } catch (error) {
-        console.log(error)
-    }
 
-})
+const router=express.Router()
+router.post('/', validateHandler(RestaruntSchema), async (req, res) => {
+    const data = req.body as Restaurant;
+    try {
+      const client = await InitializeClient();
+      const id = nanoid();
+      const restaurantKey = restrauntKeyById(id);
+      const hashdata = { id, name: data.name, location: data.location };
+  
+      await Promise.all([
+        ...(data.cuisines?.flatMap((cuisine) => [
+          client.sAdd(cuisinesKey, cuisine),            // All cuisines available
+          client.sAdd(cuisineKey(cuisine), id),         // Cuisines -> restaurant IDs
+          client.sAdd(cuisineKeyById(id), cuisine),     // Restaurant ID -> cuisines
+        ]) || []),
+        client.hSet(restaurantKey, hashdata)
+      ]);
+  
+      sucessResponse(res, hashdata, "Added new restaurant");
+  
+    } catch (error) {
+      console.error(error);
+      res.status(500).json({ success: false, error: "Internal server error" });
+    }
+  });
+  
 router.post('/:resturantId/review',validateHandler(reviewSchema),checkRestaurants, async(req:Request<{resturantId:string}>,res,next)=>{
     const {resturantId}=req.params
     const data=req.body as Review
@@ -85,17 +94,16 @@ router.get('/:resturantId',
     try {
         const client=await InitializeClient();
         const resturantkey=restrauntKeyById(resturantId)
-        const [viewCount,restaurant]=await Promise.all([
-            client.hIncrBy(
-                resturantkey,
-                "viewCount",
-                1
-            ),
 
-            client.hGetAll(resturantkey)
+        const [restaurant,cuisines]=await Promise.all([
+          
+
+            client.hGetAll(resturantkey),
+            client.sMembers(cuisineKeyById(resturantId))
+            
         ]
         )
-        sucessResponse(res,restaurant)
+        sucessResponse(res,{...restaurant,cuisines})
 
 
     } catch (error) {
