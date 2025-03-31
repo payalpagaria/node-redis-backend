@@ -3,12 +3,33 @@ import { validateHandler } from "../middlewares/validate"
 import { RestaruntSchema, type Restaurant } from "../schemas/restraunt"
 import { InitializeClient } from "../utils/client"
 import { nanoid } from "nanoid"
-import { cuisineKey, cuisineKeyById, cuisinesKey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById } from "../utils/keys"
+import { cuisineKey, cuisineKeyById, cuisinesKey, restaurantByRatingkey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById } from "../utils/keys"
 import { errorResponse, sucessResponse } from "../utils/responses"
 import { checkRestaurants } from "../middlewares/checkRestaurnats"
 import { reviewSchema, type Review } from "../schemas/review"
 
 const router=express.Router()
+router.get('/', async(req,res,next)=>{
+    const {page=1,limit=10}=req.query
+    const start=(Number(page)-1)*Number(limit)
+    const end=start+Number(limit)
+    try {
+        const client=await InitializeClient()
+        const resturantIds=await client.zRange(
+            restaurantByRatingkey,
+            start,
+            end,{
+                REV:true
+            }
+        )
+        const restraunts=await Promise.all(
+            resturantIds.map((id)=> client.hGetAll(restrauntKeyById(id)))
+        ) 
+        sucessResponse(res,restraunts)
+    } catch (error) {
+        next(error)
+    }
+})
 router.post('/', validateHandler(RestaruntSchema), async (req, res) => {
     const data = req.body as Restaurant;
     try {
@@ -23,7 +44,11 @@ router.post('/', validateHandler(RestaruntSchema), async (req, res) => {
           client.sAdd(cuisineKey(cuisine), id),         // Cuisines -> restaurant IDs
           client.sAdd(cuisineKeyById(id), cuisine),     // Restaurant ID -> cuisines
         ]) || []),
-        client.hSet(restaurantKey, hashdata)
+        client.hSet(restaurantKey, hashdata),
+        client.zAdd(restaurantByRatingkey,{
+            score:0,
+            value:id
+        })
       ]);
   
       sucessResponse(res, hashdata, "Added new restaurant");
@@ -42,10 +67,21 @@ router.post('/:resturantId/review',validateHandler(reviewSchema),checkRestaurant
         const client=InitializeClient();
         const reviewKey=reviewKeyById(resturantId) //review related to resturant key one specific restaurant
         const reviewDetailsKey=reviewDetailsKeyById(reviewId)
+        const restaurantKey=restrauntKeyById(resturantId)
         const reviewData={id:reviewId,...data,timeStamp:Date.now(),resturantId}
-        await Promise.all([
+        const[reviewCount,setResult,totalScore]=await Promise.all([
             (await client).lPush(reviewKey,reviewId),
-            (await client).hSet(reviewDetailsKey,reviewData)
+            (await client).hSet(reviewDetailsKey,reviewData),
+            (await client).hIncrByFloat(restaurantKey,"totalstars",  parseFloat(data.rating)
+        )
+        ])
+        const avgRating=Number(totalScore/reviewCount).toFixed(1)
+        await Promise.all([
+            (await client).zAdd(restaurantByRatingkey,{
+                score: Number(avgRating),
+                value:resturantId
+            }),
+            (await client).hSet(restaurantKey,"avgStars",avgRating)
         ])
         sucessResponse(res,reviewData,"Review Added")
     } catch (error) {
