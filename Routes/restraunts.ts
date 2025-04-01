@@ -3,7 +3,7 @@ import { validateHandler } from "../middlewares/validate"
 import { RestaruntDetailSchema, RestaruntSchema, type Restaurant, type RestaurantDetails } from "../schemas/restraunt"
 import { InitializeClient } from "../utils/client"
 import { nanoid } from "nanoid"
-import { cuisineKey, cuisineKeyById, cuisinesKey, restaurantByRatingkey, restaurantDetailsKey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById, weatherkeyById } from "../utils/keys"
+import { cuisineKey, cuisineKeyById, cuisinesKey, indexKey, restaurantByRatingkey, restaurantDetailsKey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById, weatherkeyById } from "../utils/keys"
 import { errorResponse, sucessResponse } from "../utils/responses"
 import { checkRestaurants } from "../middlewares/checkRestaurnats"
 import { reviewSchema, type Review } from "../schemas/review"
@@ -112,6 +112,16 @@ router.get('/:resturantId/details',checkRestaurants, async(req:Request<{resturan
         const detailskey=restaurantDetailsKey(resturantId)
         const details=await client.json.get(detailskey)
         sucessResponse(res,details)
+    } catch (error) {
+        next(error)
+    }
+})
+router.get('/search',async(req,res,next)=>{
+    const {q}=req.query
+    try {
+        const client=await InitializeClient()
+        const results=await client.ft.search(indexKey,`@name:${q}`)
+        sucessResponse(res,results)
     } catch (error) {
         next(error)
     }
