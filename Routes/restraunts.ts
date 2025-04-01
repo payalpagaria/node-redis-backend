@@ -1,9 +1,9 @@
 import express ,{type Request} from "express"
 import { validateHandler } from "../middlewares/validate"
-import { RestaruntSchema, type Restaurant } from "../schemas/restraunt"
+import { RestaruntDetailSchema, RestaruntSchema, type Restaurant, type RestaurantDetails } from "../schemas/restraunt"
 import { InitializeClient } from "../utils/client"
 import { nanoid } from "nanoid"
-import { cuisineKey, cuisineKeyById, cuisinesKey, restaurantByRatingkey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById, weatherkeyById } from "../utils/keys"
+import { cuisineKey, cuisineKeyById, cuisinesKey, restaurantByRatingkey, restaurantDetailsKey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById, weatherkeyById } from "../utils/keys"
 import { errorResponse, sucessResponse } from "../utils/responses"
 import { checkRestaurants } from "../middlewares/checkRestaurnats"
 import { reviewSchema, type Review } from "../schemas/review"
@@ -77,7 +77,7 @@ router.post('/', validateHandler(RestaruntSchema), async (req, res) => {
             const apiResponse=await fetch(`https://api.openweathermap.org/data/2.5/weather?units=imperial&lat=${lat}&lon=${lng}&appid=${process.env.WEATHER_API_KEY}`)
             if (apiResponse.status === 200) {
                 const json = await apiResponse.json();
-                
+
                 await client.set(weather, JSON.stringify(json), {
                   EX: 60 * 60,
                 });
@@ -88,16 +88,44 @@ router.post('/', validateHandler(RestaruntSchema), async (req, res) => {
             next(error)
         }
   })
-router.post('/:resturantId/review',validateHandler(reviewSchema),checkRestaurants, async(req:Request<{resturantId:string}>,res,next)=>{
+
+  router.post('/:resturantId/details',checkRestaurants, async(req:Request<{resturantId:string}>,res,next) => {
+      const { resturantId } = req.params;
+      console.log(resturantId,'ferf')
+      const data = req.body as RestaurantDetails;
+  
+      try {
+        const client = await InitializeClient();
+        const keyrest = restaurantDetailsKey(resturantId);
+        await client.json.set(keyrest, ".", data);
+         sucessResponse(res, {}, "Restaurant details added");
+      } catch (error) {
+        next(error);
+      }
+    }
+  );
+router.get('/:resturantId/details',checkRestaurants, async(req:Request<{resturantId:string}>,res,next)=>{
     const {resturantId}=req.params
+
+    try {
+        const client=await InitializeClient()
+        const detailskey=restaurantDetailsKey(resturantId)
+        const details=await client.json.get(detailskey)
+        sucessResponse(res,details)
+    } catch (error) {
+        next(error)
+    }
+})
+router.post('/:restaurant/review',validateHandler(reviewSchema),checkRestaurants, async(req:Request<{restaurant:string}>,res,next)=>{
+    const {restaurant}=req.params
     const data=req.body as Review
     try {
         const reviewId=nanoid();
         const client=InitializeClient();
-        const reviewKey=reviewKeyById(resturantId) //review related to resturant key one specific restaurant
+        const reviewKey=reviewKeyById(restaurant) //review related to resturant key one specific restaurant
         const reviewDetailsKey=reviewDetailsKeyById(reviewId)
-        const restaurantKey=restrauntKeyById(resturantId)
-        const reviewData={id:reviewId,...data,timeStamp:Date.now(),resturantId}
+        const restaurantKey=restrauntKeyById(restaurant)
+        const reviewData={id:reviewId,...data,timeStamp:Date.now(),restaurant}
         const[reviewCount,setResult,totalScore]=await Promise.all([
             (await client).lPush(reviewKey,reviewId),
             (await client).hSet(reviewDetailsKey,reviewData),
@@ -108,7 +136,7 @@ router.post('/:resturantId/review',validateHandler(reviewSchema),checkRestaurant
         await Promise.all([
             (await client).zAdd(restaurantByRatingkey,{
                 score: Number(avgRating),
-                value:resturantId
+                value:restaurant
             }),
             (await client).hSet(restaurantKey,"avgStars",avgRating)
         ])
