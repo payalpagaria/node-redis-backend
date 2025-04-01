@@ -3,11 +3,10 @@ import { validateHandler } from "../middlewares/validate"
 import { RestaruntSchema, type Restaurant } from "../schemas/restraunt"
 import { InitializeClient } from "../utils/client"
 import { nanoid } from "nanoid"
-import { cuisineKey, cuisineKeyById, cuisinesKey, restaurantByRatingkey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById } from "../utils/keys"
+import { cuisineKey, cuisineKeyById, cuisinesKey, restaurantByRatingkey, restrauntKeyById, reviewDetailsKeyById,  reviewKeyById, weatherkeyById } from "../utils/keys"
 import { errorResponse, sucessResponse } from "../utils/responses"
 import { checkRestaurants } from "../middlewares/checkRestaurnats"
 import { reviewSchema, type Review } from "../schemas/review"
-
 const router=express.Router()
 router.get('/', async(req,res,next)=>{
     const {page=1,limit=10}=req.query
@@ -58,7 +57,37 @@ router.post('/', validateHandler(RestaruntSchema), async (req, res) => {
       res.status(500).json({ success: false, error: "Internal server error" });
     }
   });
-  
+  router.get('/:resturantId/weather',checkRestaurants,async(req:Request<{resturantId:string}>,res,next)=>{
+    const {resturantId}=req.params
+
+        try {
+            const client=await InitializeClient();
+            const restaurantkey=restrauntKeyById(resturantId);
+            const weather=weatherkeyById(resturantId)
+            const cachedWeather=await client.get(weather)
+            if(cachedWeather){
+                console.log('cache hit')
+                sucessResponse(res,JSON.parse(cachedWeather))
+            }
+            const coord=await client.hGet(restaurantkey,"location") //location is the feild i wanna retrive restaurantkey is the hash for restaurant
+            if(!coord){
+                errorResponse(res,404,"Cordinates not found")
+            }
+            const [lng,lat]=coord.split(',')
+            const apiResponse=await fetch(`https://api.openweathermap.org/data/2.5/weather?units=imperial&lat=${lat}&lon=${lng}&appid=${process.env.WEATHER_API_KEY}`)
+            if (apiResponse.status === 200) {
+                const json = await apiResponse.json();
+                
+                await client.set(weather, JSON.stringify(json), {
+                  EX: 60 * 60,
+                });
+                 sucessResponse(res, json);
+              }
+               errorResponse(res, 500, "Couldnt fetch weather info");
+        } catch (error) {
+            next(error)
+        }
+  })
 router.post('/:resturantId/review',validateHandler(reviewSchema),checkRestaurants, async(req:Request<{resturantId:string}>,res,next)=>{
     const {resturantId}=req.params
     const data=req.body as Review
